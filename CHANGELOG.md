@@ -2,19 +2,16 @@
 
 ## Unreleased
 
-### Breaking / attention
-
-- **`multiformats` dependency moved from `^14.0.5` to `^13.4.2`.** Helia 6 depends on `multiformats@13`. With v14 at the top level, npm nests a separate v13 copy under each Helia package, and a `CID` created by one copy fails the `instanceof CID` check in another. The visible symptom is `InvalidParametersError: Path must be string or CID` from `unixfs.stat` / `unixfs.cat`. Pinning v13 lets npm dedupe a single copy for Meshkit and Helia. If your app imports `multiformats` directly, it must resolve to the same v13 copy (or pass CIDs to Meshkit as strings).
-- **The CommonJS builds now bundle their own `multiformats`.** v13 has no `module-sync` export condition, so `require('multiformats/cid')` throws on Node 22. The CJS bundles therefore inline it, which means CJS users get a separate `CID` class from any copy in their own `node_modules`. Do not hand `CID` objects between your code and Meshkit's CJS build — use strings. The ESM builds keep `multiformats` external and are unaffected. Helia itself is ESM-only, so `createHeliaClient` is meant for the ESM build.
-
 ### Added
 
-- **`createHeliaClient(helia, { offline? })`** — a `MeshkitClient` backed by an in-process Helia node (no Kubo daemon). Exported from both the Node and browser entries (tested on Node only). Requires the optional peer dependencies `helia`, `@helia/unixfs`, `@helia/ipns`, `@libp2p/crypto` and `@libp2p/peer-id`; they are imported lazily, so Kubo/S3-only users are unaffected.
+- **`createHeliaClient(helia, { offline? })`** — a `MeshkitClient` backed by an in-process Helia node (no Kubo daemon). Exported from both the Node and browser entries (tested on Node only). Targets **Helia 7** (`helia@^7`, `@helia/unixfs@^8`, `@helia/ipns@^10`), which uses the same `multiformats@^14` as Meshkit — no version pin or dedupe workaround is needed. Requires the optional peer dependencies `helia`, `@helia/unixfs`, `@helia/ipns`, `@libp2p/crypto` and `@libp2p/peer-id`; they are imported lazily, so Kubo/S3-only users are unaffected.
   - `countPins` counts pinned roots only (a multi-block upload is one pin); `indirect` is always `0`.
   - `list` returns every pinned root as `{ cid, size, uploadedAt }`, like the S3 client. `uploadedAt` is recorded in pin metadata when `pin()` runs; roots pinned elsewhere report the Unix epoch.
+  - Helia 7 does not start itself and creates libp2p on `start()`: call `await helia.start()` before IPNS/key calls (other calls and `healthCheck` work on any node). `healthCheck` checks `helia.status`.
+  - `resolveName` returns the newest record from `@helia/ipns` 10's async-iterable `resolve`.
   - `generateKey` generates an Ed25519 (or RSA) key and imports it into the libp2p keychain (`helia.libp2p.services.keychain`). IPNS names are the key's PeerID (`12D3Koo…`), not the keychain's `KeyInfo.id`.
   - `resolveName` looks the name up as a keychain label and resolves with its public key; otherwise it treats the input as an IPNS name.
-  - `retrieve`, `pin` and `publishName` accept a CID object from the caller's own `multiformats@13` as well as a string.
+  - `retrieve`, `pin` and `publishName` accept a CID object from the caller's own `multiformats@14` as well as a string.
   - `offline: true` skips the DHT for IPNS and disables network block fetches.
 - `encrypt`, `decrypt`, `isEncryptedPayload`, `DEFAULT_ITERATIONS` and the `EncryptOptions` type are now also exported from the **browser** entry (`index.browser`). They were already exported from the Node entry.
 - `npm run test:dist` builds and runs `tests/dist`, which imports the built ESM and CJS bundles and checks the crypto exports and `createHeliaClient`.

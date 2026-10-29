@@ -68,15 +68,15 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
  * lazily so Kubo-only users never load them. The caller owns the node's
  * lifecycle (`helia.stop()`).
  *
- * The keychain is reached through `helia.libp2p.services.keychain`, which
- * exists only when Helia is created with its default libp2p services (do not
- * pass `libp2p.services: {}`).
+ * The keychain is reached through `helia.libp2p.services.keychain`. libp2p exists
+ * only once the node is started (`await helia.start()`) and only with Helia's
+ * default libp2p services (do not pass `libp2p.services: {}`).
  */
 export async function createHeliaClient(
   helia: Helia,
   config: HeliaClientConfig = {},
 ): Promise<MeshkitClient> {
-  const [{ unixfs }, { ipns }, { generateKeyPair }, { peerIdFromPublicKey, peerIdFromString }] = await Promise.all([
+  const [{ unixfs }, { ipns }, { generateKeyPair }, { peerIdFromPublicKey }] = await Promise.all([
     import('@helia/unixfs'),
     import('@helia/ipns'),
     import('@libp2p/crypto/keys'),
@@ -85,11 +85,29 @@ export async function createHeliaClient(
 
   const offline = config.offline === true;
   const fs = unixfs(helia);
-  // Helia's default libp2p is typed without the keychain service IPNS needs; it is present at runtime.
-  const names = ipns(helia as unknown as Parameters<typeof ipns>[0]);
 
-  const keychain = (helia.libp2p.services as { keychain?: KeychainLike }).keychain;
+  // Helia 7 creates libp2p on start(), and `helia.libp2p` throws until then. IPNS and
+  // the keychain are therefore resolved lazily, so a client can be created before
+  // `helia.start()` and only IPNS/key calls need a started node.
+  let namesInstance: ReturnType<typeof ipns> | undefined;
+  function requireNames(): ReturnType<typeof ipns> {
+    requireKeychain();
+    // The IPNS components type wants a libp2p with the keychain service; it is present at runtime.
+    namesInstance ??= ipns(helia as unknown as Parameters<typeof ipns>[0]);
+    return namesInstance;
+  }
+
   function requireKeychain(): KeychainLike {
+    let keychain: KeychainLike | undefined;
+    try {
+      keychain = (helia as unknown as { libp2p: { services: { keychain?: KeychainLike } } }).libp2p
+        .services.keychain;
+    } catch (err) {
+      throw new MeshkitError(
+        'Helia node has no libp2p instance — call `await helia.start()` before using IPNS or keys',
+        [err as Error],
+      );
+    }
     if (!keychain) {
       throw new MeshkitError(
         'Helia node has no keychain service — create it with the default libp2p services',
@@ -128,12 +146,22 @@ export async function createHeliaClient(
       publicKey = undefined;
     }
 
-    const key = publicKey ?? peerIdFromString(toIpnsPath(name).slice('/ipns/'.length));
-    const result = await names.resolve(key as Parameters<typeof names.resolve>[0], {
-      ...(offline ? { offline } : {}),
-      ...(options?.nocache ? { nocache: true } : {}),
-    });
-    return `/ipfs/${result.cid.toString()}${result.path ? `/${result.path}` : ''}`;
+    const key = publicKey ?? toIpnsPath(name); // @helia/ipns 10 takes a `/ipns/<name>` path string
+    // @helia/ipns 10 yields each record it finds as an async iterable; the last is the newest.
+    let value: string | undefined;
+    for await (const result of requireNames().resolve(
+      key as Parameters<ReturnType<typeof ipns>['resolve']>[0],
+      {
+        ...(offline ? { offline } : {}),
+        ...(options?.nocache ? { nocache: true } : {}),
+      },
+    )) {
+      value = result.value;
+    }
+    if (!value) {
+      throw new MeshkitError(`IPNS name not found or empty result: ${toIpnsPath(name)}`);
+    }
+    return value;
   }
 
   /** Size in bytes of a pinned root: UnixFS size, else the root block's length. */
@@ -184,7 +212,7 @@ export async function createHeliaClient(
       requireKeychain();
       const keyName = options?.key ?? 'self';
       const cid = parseCid(extractCidFromPath(toIpfsPath(String(value))));
-      await names.publish(keyName, cid, {
+      await requireNames().publish(keyName, cid, {
         ...(options?.lifetime ? { lifetime: parseDurationMs(options.lifetime) } : {}),
         ...(options?.ttl ? { ttl: parseDurationMs(options.ttl) } : {}),
         ...(offline ? { offline } : {}),
@@ -268,8 +296,8 @@ export async function createHeliaClient(
     },
 
     async healthCheck(): Promise<void> {
-      if (helia.libp2p.status !== 'started') {
-        throw new MeshkitError(`Helia node is not running (status: ${helia.libp2p.status})`);
+      if (helia.status !== 'started') {
+        throw new MeshkitError(`Helia node is not running (status: ${helia.status})`);
       }
     },
   };

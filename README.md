@@ -412,7 +412,7 @@ export class InvoiceStorageService {
 `createHeliaClient` runs the `MeshkitClient` API on an in-process [Helia](https://github.com/ipfs/helia) node — no Kubo daemon. The Helia packages are **optional peer dependencies**, so install them only if you use this client:
 
 ```bash
-npm install helia @helia/unixfs @helia/ipns @libp2p/crypto @libp2p/peer-id
+npm install helia@^7 @helia/unixfs@^8 @helia/ipns@^10 @libp2p/crypto @libp2p/peer-id
 ```
 
 ```typescript
@@ -421,6 +421,7 @@ import { createHeliaClient } from '@ipfs-meshkit/meshkit';
 
 // Use Helia's default libp2p services — the keychain (IPNS keys) is one of them.
 const helia = await createHelia();
+await helia.start();                                    // Helia 7 does not auto-start; IPNS/keys need the started libp2p
 const client = await createHeliaClient(helia);
 
 const cid = await client.upload(new TextEncoder().encode('hello'));
@@ -434,7 +435,7 @@ await client.list();                                    // [{ cid, size, uploade
 await helia.stop();                                     // you own the node's lifecycle
 ```
 
-**Node.js only.** This client is developed and tested on Node.js 22 with Helia 6. The browser entry re-exports it, but it has not been tested in a browser. Pass `{ offline: true }` to keep IPNS publish/resolve and block reads off the network (no DHT, no peers) — useful for tests and air-gapped use.
+**Node.js only.** This client is developed and tested on Node.js 22 with Helia 7 (`helia@^7`, `@helia/unixfs@^8`, `@helia/ipns@^10`). The browser entry re-exports it, but it has not been tested in a browser. Pass `{ offline: true }` to keep IPNS publish/resolve and block reads off the network (no DHT, no peers) — useful for tests and air-gapped use.
 
 **Persistence.** Pins, IPNS records and keys live in the Helia datastore and blocks in its blockstore. The defaults are in-memory; pass `blockstore: new FsBlockstore(...)` and `datastore: new FsDatastore(...)` (or LevelDB) to `createHelia` to survive restarts.
 

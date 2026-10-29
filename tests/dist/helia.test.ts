@@ -8,12 +8,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-// The ESM build with the *user's* multiformats@13 (the copy resolved from this repo's
+// The ESM build with the *user's* multiformats@14 (the copy resolved from this repo's
 // root) and a real Helia. Run via `npm run test:dist`.
 const dist = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../dist');
 const { createHeliaClient } = await import(path.join(dist, 'index.js'));
 
-describe('built ESM createHeliaClient with a user-supplied multiformats@13 CID', () => {
+describe('built ESM createHeliaClient with a user-supplied multiformats@14 CID', () => {
   let helia: Helia;
   let client: Awaited<ReturnType<typeof createHeliaClient>>;
   const bytes = new TextEncoder().encode('cid from the user multiformats');
@@ -24,6 +24,7 @@ describe('built ESM createHeliaClient with a user-supplied multiformats@13 CID',
       datastore: new MemoryDatastore(),
       libp2p: { addresses: { listen: [] }, transports: [], peerDiscovery: [] },
     });
+    await helia.start(); // Helia 7 does not start itself; libp2p (keychain) exists only once started
     client = await createHeliaClient(helia, { offline: true });
   });
 

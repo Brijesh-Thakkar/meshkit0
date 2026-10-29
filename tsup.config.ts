@@ -36,33 +36,35 @@ const external = [
   '@libp2p/peer-id',
 ];
 
-/**
- * multiformats is external in ESM so it dedupes with the copy Helia needs (a CID from
- * one copy fails `instanceof` in another). The CJS bundles inline it instead: v13 has no
- * `module-sync` export condition, so `require('multiformats/cid')` throws on Node 22.
- */
-function target(entry: string, format: 'esm' | 'cjs', first = false) {
-  return {
-    entry: { [entry]: path.join(root, `packages/meshkit/src/${entry}.ts`) },
-    format: [format],
+export default defineConfig([
+  // Node.js build — full surface including @ipfs-meshkit/node (child_process, path).
+  {
+    entry: { index: path.join(root, 'packages/meshkit/src/index.ts') },
+    format: ['esm', 'cjs'],
     outDir: 'dist',
-    clean: first,
+    clean: true,
     sourcemap: true,
-    target: 'es2022' as const,
-    esbuildOptions(options: { alias?: Record<string, string> }) {
+    target: 'es2022',
+    esbuildOptions(options) {
       options.alias = sharedAlias;
     },
     dts: sharedDts,
-    noExternal: format === 'cjs' ? [/^@ipfs-meshkit\//, /^multiformats(\/|$)/] : [/^@ipfs-meshkit\//],
-    external: format === 'cjs' ? external.filter((name) => name !== 'multiformats') : external,
-  };
-}
-
-export default defineConfig([
-  // Node.js build — full surface including @ipfs-meshkit/node (child_process, path).
-  target('index', 'esm', true),
-  target('index', 'cjs'),
+    noExternal: [/^@ipfs-meshkit\//],
+    external: [...external],
+  },
   // Browser build — only @ipfs-meshkit/core; no Node.js built-ins.
-  target('index.browser', 'esm'),
-  target('index.browser', 'cjs'),
+  {
+    entry: { 'index.browser': path.join(root, 'packages/meshkit/src/index.browser.ts') },
+    format: ['esm', 'cjs'],
+    outDir: 'dist',
+    clean: false,
+    sourcemap: true,
+    target: 'es2022',
+    esbuildOptions(options) {
+      options.alias = sharedAlias;
+    },
+    dts: sharedDts,
+    noExternal: [/^@ipfs-meshkit\//],
+    external: [...external],
+  },
 ]);

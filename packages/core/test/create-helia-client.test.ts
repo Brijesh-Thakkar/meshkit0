@@ -12,12 +12,13 @@ import type { MeshkitClient } from '../src/types.js';
  * The default libp2p services are kept: the keychain is one of them.
  */
 async function createOfflineHelia(start = true): Promise<Helia> {
-  return createHelia({
+  const node = await createHelia({
     blockstore: new MemoryBlockstore(),
     datastore: new MemoryDatastore(),
-    start,
     libp2p: { addresses: { listen: [] }, transports: [], peerDiscovery: [] },
   });
+  // Helia 7 does not start itself, and `helia.libp2p` throws until it is started.
+  return start ? node.start() : node;
 }
 
 const PASSWORD = 'test-password-32chars-minimum-ok';
@@ -202,7 +203,7 @@ describe('createHeliaClient (offline, in-memory Helia)', () => {
     });
 
     it('fails to resolve a name with no local record', async () => {
-      const stranger = await createOfflineHelia(false);
+      const stranger = await createOfflineHelia(); // started: generateKey needs the keychain
       const other = await createHeliaClient(stranger, { offline: true });
       const { id } = await other.generateKey('elsewhere');
       await other.publishName(await other.upload(text('x')), { key: 'elsewhere' });
@@ -239,10 +240,20 @@ describe('createHeliaClient (offline, in-memory Helia)', () => {
     const bare = await createHelia({
       blockstore: new MemoryBlockstore(),
       datastore: new MemoryDatastore(),
-      start: false,
       libp2p: { addresses: { listen: [] }, transports: [], peerDiscovery: [], services: {} },
     });
+    await bare.start();
     const c = await createHeliaClient(bare, { offline: true });
     await expect(c.listKeys()).rejects.toThrow(/no keychain service/);
+    await bare.stop();
+  });
+
+  it('reports a clear error when IPNS or keys are used before the node is started', async () => {
+    const idle = await createOfflineHelia(false);
+    const c = await createHeliaClient(idle, { offline: true });
+    await expect(c.listKeys()).rejects.toThrow(/helia\.start\(\)/);
+    await expect(c.resolveName('anything')).rejects.toThrow(/helia\.start\(\)/);
+    // Non-IPNS calls need no libp2p, so they work on a stopped node.
+    expect(await c.upload(new TextEncoder().encode('no libp2p needed'))).toBeTruthy();
   });
 });
