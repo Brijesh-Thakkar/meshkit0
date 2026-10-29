@@ -18,10 +18,15 @@ export {
   createMeshkitClient,
   createS3Client,
   createFilOneClient,
+  createHeliaClient,
   IPNS_TTL_DEFAULT,
   IPNS_TTL_FAST,
   extractCidFromPath,
   toIpfsPath,
   toIpnsPath,
+  encrypt,
+  decrypt,
+  isEncryptedPayload,
+  DEFAULT_ITERATIONS,
 } from '@ipfs-meshkit/core';
-export type { S3StorageConfig, FilOneConfig } from '@ipfs-meshkit/core';
+export type { EncryptOptions, HeliaClientConfig, S3StorageConfig, FilOneConfig } from '@ipfs-meshkit/core';

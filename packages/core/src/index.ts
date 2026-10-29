@@ -21,6 +21,8 @@ export { Meshkit } from './meshkit.js';
 
 export { createMeshkitClient } from './create-client.js';
 export { createS3Client, createFilOneClient } from './create-filone-client.js';
+export { createHeliaClient } from './create-helia-client.js';
+export type { HeliaClientConfig } from './create-helia-client.js';
 export type { S3StorageConfig, FilOneConfig } from './create-filone-client.js';
 
 export { IPNS_TTL_DEFAULT, IPNS_TTL_FAST } from './ipns/constants.js';

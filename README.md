@@ -407,6 +407,46 @@ export class InvoiceStorageService {
 }
 ```
 
+### Helia (in-process IPFS node, Node.js)
+
+`createHeliaClient` runs the `MeshkitClient` API on an in-process [Helia](https://github.com/ipfs/helia) node — no Kubo daemon. The Helia packages are **optional peer dependencies**, so install them only if you use this client:
+
+```bash
+npm install helia @helia/unixfs @helia/ipns @libp2p/crypto @libp2p/peer-id
+```
+
+```typescript
+import { createHelia } from 'helia';
+import { createHeliaClient } from '@ipfs-meshkit/meshkit';
+
+// Use Helia's default libp2p services — the keychain (IPNS keys) is one of them.
+const helia = await createHelia();
+const client = await createHeliaClient(helia);
+
+const cid = await client.upload(new TextEncoder().encode('hello'));
+await client.pin(cid);
+
+const key = await client.generateKey('site');           // { id: '12D3Koo…', name: 'site' }
+await client.publishName(cid, { key: 'site' });         // { name: '12D3Koo…', value: '/ipfs/<cid>' }
+await client.resolveName('site');                       // '/ipfs/<cid>' — resolve by key name
+await client.list();                                    // [{ cid, size, uploadedAt }]
+
+await helia.stop();                                     // you own the node's lifecycle
+```
+
+**Node.js only.** This client is developed and tested on Node.js 22 with Helia 6. The browser entry re-exports it, but it has not been tested in a browser. Pass `{ offline: true }` to keep IPNS publish/resolve and block reads off the network (no DHT, no peers) — useful for tests and air-gapped use.
+
+**Persistence.** Pins, IPNS records and keys live in the Helia datastore and blocks in its blockstore. The defaults are in-memory; pass `blockstore: new FsBlockstore(...)` and `datastore: new FsDatastore(...)` (or LevelDB) to `createHelia` to survive restarts.
+
+**How IPNS key names map to `12D3Koo…`.** A key *name* (`'site'`) is a local keychain label. Its IPNS *name* is the PeerID of the key's public key: `12D3Koo…` for Ed25519, `Qm…` for RSA — the same form Kubo returns. `generateKey` / `listKeys` / `publishName` return that PeerID as `id` / `name`. `resolveName(x)` first tries `x` as a key label and, if there is none, treats it as an IPNS name, so both `resolveName('site')` and `resolveName('12D3Koo…')` work. The keychain's own `KeyInfo.id` (a `Qm…` hash even for Ed25519) is *not* a resolvable IPNS name and is never returned.
+
+**Semantics that differ from Kubo:**
+- `countPins()` counts pinned **roots**; `indirect` is always `0`. A finite-depth pin counts as `direct`, an infinite-depth pin as `recursive`.
+- `list()` returns every pinned root as a `StoredObject`. `uploadedAt` is the time `client.pin()` ran (stored in the pin's metadata); roots pinned by other tools report the Unix epoch.
+- `pin()` of an already-pinned CID is a no-op, as on Kubo.
+- `publishName` accepts Go-style durations (`'10s'`, `'1h30m'`) for `lifetime` / `ttl`; the `resolve` option is ignored.
+- Publishing **without** `offline: true` pushes the record to the DHT / routers and can take tens of seconds.
+
 ### Low-level single-node client (no failover)
 
 ```typescript
@@ -463,6 +503,33 @@ const { init } = require('@ipfs-meshkit/meshkit');
 | `StoredObject` | Type: `{ cid: string; size: number; uploadedAt: string }` |
 
 > IPNS operations (`publishName`, `resolveName`, `resolveAndRetrieve`, `generateKey`, `listKeys`) are **not supported on S3 clients** and throw `MeshkitError`.
+
+### Helia (in-process node)
+
+| Export | Purpose |
+|---|---|
+| `createHeliaClient(helia, config?)` | `MeshkitClient` backed by a Helia node; async (loads the optional peer deps lazily) |
+| `HeliaClientConfig` | Type: `{ offline?: boolean }` |
+
+See [Helia (in-process IPFS node, Node.js)](#helia-in-process-ipfs-node-nodejs).
+
+### Kubo vs S3 vs Helia
+
+| | Kubo (`createMeshkitClient` / `init`) | S3 (`createS3Client` / `createFilOneClient`) | Helia (`createHeliaClient`) |
+|---|---|---|---|
+| Backend | Kubo daemon over RPC | S3-compatible bucket | In-process Helia node |
+| Runs in | Node.js | Node, browser, Ionic, React Native | Node.js (tested on Node 22) |
+| `upload` | `ipfs.add`, not pinned | PUT, CID computed locally | `unixfs.addBytes`, not pinned |
+| `retrieve` | `ipfs.cat` | GET by CID key | `unixfs.cat` (network via Helia's block brokers) |
+| `pin` | `pin.add` | no-op | `pins.add` (repeat pin is a no-op) |
+| `listPins` | all pins (incl. indirect) | all object keys | pinned roots |
+| `countPins` | by type: direct / recursive / indirect | all objects as `recursive` | roots only; `indirect` is `0` |
+| `list` | throws `MeshkitError` — use `listPins` | `{ cid, size, uploadedAt }[]` | pinned roots as `{ cid, size, uploadedAt }[]` |
+| `healthCheck` | `ipfs.id()` | HEAD the bucket | node status is `started` |
+| `publishName` / `resolveName` | yes | throws `MeshkitError` | yes (`offline: true` skips the DHT) |
+| `generateKey` / `listKeys` | Kubo keystore | throws `MeshkitError` | libp2p keychain |
+| Failover across nodes | yes, via `init` | no | no |
+| Needs a daemon / account | Kubo daemon | bucket + credentials | neither |
 
 ### Constants and utilities
 

@@ -22,35 +22,47 @@ const sharedDts = {
   },
 };
 
+const external = [
+  'kubo-rpc-client',
+  'aws4fetch',
+  'multiformats',
+  '@noble/ciphers',
+  '@noble/hashes',
+  // Optional peer deps of createHeliaClient(), imported lazily.
+  'helia',
+  '@helia/unixfs',
+  '@helia/ipns',
+  '@libp2p/crypto',
+  '@libp2p/peer-id',
+];
+
+/**
+ * multiformats is external in ESM so it dedupes with the copy Helia needs (a CID from
+ * one copy fails `instanceof` in another). The CJS bundles inline it instead: v13 has no
+ * `module-sync` export condition, so `require('multiformats/cid')` throws on Node 22.
+ */
+function target(entry: string, format: 'esm' | 'cjs', first = false) {
+  return {
+    entry: { [entry]: path.join(root, `packages/meshkit/src/${entry}.ts`) },
+    format: [format],
+    outDir: 'dist',
+    clean: first,
+    sourcemap: true,
+    target: 'es2022' as const,
+    esbuildOptions(options: { alias?: Record<string, string> }) {
+      options.alias = sharedAlias;
+    },
+    dts: sharedDts,
+    noExternal: format === 'cjs' ? [/^@ipfs-meshkit\//, /^multiformats(\/|$)/] : [/^@ipfs-meshkit\//],
+    external: format === 'cjs' ? external.filter((name) => name !== 'multiformats') : external,
+  };
+}
+
 export default defineConfig([
   // Node.js build — full surface including @ipfs-meshkit/node (child_process, path).
-  {
-    entry: { index: path.join(root, 'packages/meshkit/src/index.ts') },
-    format: ['esm', 'cjs'],
-    outDir: 'dist',
-    clean: true,
-    sourcemap: true,
-    target: 'es2022',
-    esbuildOptions(options) {
-      options.alias = sharedAlias;
-    },
-    dts: sharedDts,
-    noExternal: [/^@ipfs-meshkit\//],
-    external: ['kubo-rpc-client', 'aws4fetch', 'multiformats', '@noble/ciphers', '@noble/hashes'],
-  },
+  target('index', 'esm', true),
+  target('index', 'cjs'),
   // Browser build — only @ipfs-meshkit/core; no Node.js built-ins.
-  {
-    entry: { 'index.browser': path.join(root, 'packages/meshkit/src/index.browser.ts') },
-    format: ['esm', 'cjs'],
-    outDir: 'dist',
-    clean: false,
-    sourcemap: true,
-    target: 'es2022',
-    esbuildOptions(options) {
-      options.alias = sharedAlias;
-    },
-    dts: sharedDts,
-    noExternal: [/^@ipfs-meshkit\//],
-    external: ['kubo-rpc-client', 'aws4fetch', 'multiformats', '@noble/ciphers', '@noble/hashes'],
-  },
+  target('index.browser', 'esm'),
+  target('index.browser', 'cjs'),
 ]);
